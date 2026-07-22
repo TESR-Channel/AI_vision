@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TESR AI Vision Web Trainer</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<style>
+:root{
+  --paper:#100f0d; --card:#1a1815; --soft:#242019; --edge:#37322a;
+  --ink:#f0eee8; --muted:#a89f90; --faint:#6f685c;
+  --gold:#c9a84c; --gold-soft:#2e2716; --crimson:#d8484c; --crimson-soft:#3a1b1c;
+  --ok:#5fbf85; --ok-soft:#1c2f24;
+  --r:16px; --shadow:0 2px 12px rgba(0,0,0,.35);
+}
+html[data-theme=light]{
+  --paper:#faf8f3; --card:#ffffff; --soft:#f3efe6; --edge:#e7e1d4;
+  --ink:#26221c; --muted:#877f72; --faint:#b3ab9c;
+  --gold:#b8933a; --gold-soft:#f5ead0; --crimson:#c22a2e; --crimson-soft:#fbeaea;
+  --ok:#3f9d63; --ok-soft:#e6f4ec;
+  --shadow:0 2px 10px rgba(60,50,30,.06);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:'Kanit',sans-serif;
+  font-weight:300;min-height:100vh;line-height:1.6;transition:background .25s,color .25s}
+h1,h2{font-weight:600}
+.wrap{max-width:1500px;margin:0 auto;padding:36px 40px 72px}
+header{display:flex;align-items:center;justify-content:center;gap:20px;
+  position:relative;text-align:left;margin-bottom:30px}
+header .logo{height:84px;filter:drop-shadow(0 3px 8px rgba(0,0,0,.35))}
+header h1{font-size:26px;letter-spacing:.5px}
+header h1 span{color:var(--crimson)}
+header p{color:var(--muted);font-size:15px;margin-top:2px}
+.steps{display:flex;justify-content:center;gap:0;margin:28px 0 40px}
+.step{display:flex;flex-direction:column;align-items:center;width:190px;position:relative}
+.step:not(:last-child)::after{content:'';position:absolute;top:21px;left:calc(50% + 26px);
+  width:calc(100% - 52px);height:3px;border-radius:2px;background:var(--edge)}
+.step.done:not(:last-child)::after{background:linear-gradient(90deg,var(--gold),var(--crimson))}
+.step i{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-style:normal;font-size:19px;background:var(--soft);
+  border:2px solid var(--edge);z-index:1;transition:.25s}
+.step.done i,.step.now i{background:var(--gold-soft);border-color:var(--gold)}
+.step.now i{background:var(--crimson-soft);border-color:var(--crimson);transform:scale(1.12)}
+.step b{font-weight:500;font-size:14px;margin-top:10px}
+.step small{color:var(--muted);font-size:12px}
+.card{background:var(--card);border:1px solid var(--edge);border-radius:var(--r);
+  padding:28px;margin-bottom:24px;box-shadow:var(--shadow)}
+.card h2{font-size:17px;margin-bottom:6px}
+.card .sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+.chips{display:flex;flex-wrap:wrap;gap:10px}
+.chip{background:var(--soft);border-radius:999px;padding:7px 16px;font-size:14px}
+.chip b{font-weight:500}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.warn{background:var(--gold-soft);color:var(--gold)}
+.chip.bad{background:var(--crimson-soft);color:var(--crimson)}
+.note{margin-top:14px;font-size:14px;color:var(--muted);background:var(--soft);
+  border-radius:10px;padding:12px 16px}
+input,select,button{font-family:inherit;font-size:15px}
+input[type=text],input[type=number],select{background:var(--card);
+  border:1.5px solid var(--edge);color:var(--ink);border-radius:10px;
+  padding:11px 14px;transition:.2s}
+input:focus,select:focus{outline:none;border-color:var(--gold)}
+button{background:var(--crimson);color:#fff;border:0;border-radius:10px;
+  padding:11px 22px;cursor:pointer;font-weight:500;transition:.2s}
+button.gold{background:var(--card);border:1.5px solid var(--gold);color:var(--gold)}
+button.quiet{background:var(--soft);color:var(--ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgba(0,0,0,.25)}
+.row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.cls{border:1.5px solid var(--edge);border-radius:12px;padding:16px;margin-bottom:14px}
+.cls .head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.cls .head b{font-weight:500}
+.cls .count{margin-left:auto;color:var(--muted);font-size:13px}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;max-height:120px;overflow:auto}
+.thumbs img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--edge)}
+video,canvas.preview{border-radius:12px;background:#111;max-width:100%}
+.bar{height:14px;background:var(--soft);border-radius:999px;overflow:hidden;margin:14px 0 10px}
+.bar div{height:100%;background:linear-gradient(90deg,var(--gold),var(--crimson));
+  width:0%;border-radius:999px;transition:width .3s}
+.metrics{display:flex;gap:12px;flex-wrap:wrap}
+.metrics span{background:var(--soft);border-radius:999px;padding:5px 14px;
+  font-size:13.5px;color:var(--muted)}
+.metrics b{color:var(--ink);font-weight:500}
+.msg{font-size:14px;margin-top:12px;color:var(--muted)}
+.msg.err{color:var(--crimson);background:var(--crimson-soft);border-radius:10px;padding:12px 16px}
+.pred{margin-top:14px}
+.pred .prow{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.pred .pname{width:140px;font-size:14px}
+.pred .pbar{flex:1;height:18px;background:var(--soft);border-radius:999px;overflow:hidden}
+.pred .pbar div{height:100%;background:linear-gradient(90deg,var(--gold),var(--crimson));
+  border-radius:999px;transition:width .15s}
+.pred .pval{width:60px;text-align:right;font-size:13px;color:var(--muted)}
+.tag{font-size:13px;color:var(--muted)}
+.hint{font-size:12.5px;color:var(--faint);margin-top:4px;line-height:1.45}
+footer{text-align:center;color:var(--faint);font-size:13px;margin-top:40px;letter-spacing:1px}
+code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}.step{width:25%}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <img src="./logo.png" alt="TESR" class="logo">
+    <div>
+      <h1>TESR <span>AI Vision Web Trainer</span></h1>
+      <p>Train an image-recognition AI entirely in your browser — nothing to install,
+      your photos never leave this computer.</p>
+    </div>
+    <button class="quiet" id="themeBtn" onclick="toggleTheme()"
+      style="position:absolute;right:0;top:0">☀️ Light</button>
+  </header>
+
+  <div class="steps">
+    <div class="step now" id="st1"><i>🧩</i><b>Classes</b><small>Name your objects</small></div>
+    <div class="step" id="st2"><i>📷</i><b>Collect</b><small>Capture examples</small></div>
+    <div class="step" id="st3"><i>🧠</i><b>Train</b><small>In this browser</small></div>
+    <div class="step" id="st4"><i>🎯</i><b>Test &amp; Export</b><small>Try it live</small></div>
+  </div>
+
+  <div class="card">
+    <h2>This Computer's Capability</h2>
+    <p class="sub">Training runs right here in your browser, so it depends on this machine</p>
+    <div class="chips" id="hw">Checking...</div>
+    <div class="note" id="hwNote" style="display:none"></div>
+    <div class="msg err" id="hwBlock" style="display:none"></div>
+  </div>
+
+  <div class="card" id="clsCard">
+    <h2>1 · Classes</h2>
+    <p class="sub">What should the AI learn to tell apart? At least 2 classes, e.g. "bottle" and "no_bottle"</p>
+    <div class="row">
+      <input type="text" id="newCls" placeholder="Class name, e.g. bottle" style="width:260px">
+      <button class="gold" onclick="addClass()">+ Add Class</button>
+    </div>
+    <div id="clsList" style="margin-top:16px"></div>
+  </div>
+
+  <div class="card" id="camCard">
+    <h2>2 · Collect Examples</h2>
+    <p class="sub">Pick a class, then hold the capture button while moving the object around —
+    30–50 varied shots per class works well. You can also upload image files per class above.</p>
+    <div class="grid2">
+      <div>
+        <div style="position:relative;width:480px;max-width:100%">
+          <video id="cam" autoplay playsinline muted style="width:100%;border-radius:12px;background:#111"></video>
+          <canvas id="overlay" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none"></canvas>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <select id="capCls" style="width:200px"></select>
+          <button id="holdBtn">📸 Hold to Capture</button>
+          <span class="tag" id="capMsg"></span>
+        </div>
+        <div class="hint">Tip: change angle, distance, background and lighting while holding —
+        variety beats quantity.</div>
+      </div>
+      <div>
+        <div class="note" style="margin-top:0">Examples are converted to compact feature vectors
+        on your GPU as you capture, so training later takes only seconds. Raw images stay
+        in this page's memory only — nothing is uploaded anywhere.</div>
+        <div class="msg" id="dataSummary"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="trainCard">
+    <h2>3 · Train</h2>
+    <p class="sub">Runs on this computer using WebGL/WebGPU acceleration when available</p>
+    <div class="row" style="align-items:flex-end">
+      <div><label class="tag">Epochs</label><br>
+        <input type="number" id="epochs" value="40" min="5" style="width:110px">
+        <div class="hint">40 is plenty for most cases</div></div>
+      <div><label class="tag">Learning rate</label><br>
+        <select id="lr" style="width:130px">
+          <option value="0.001" selected>0.001</option>
+          <option value="0.0005">0.0005</option>
+          <option value="0.005">0.005</option>
+        </select>
+        <div class="hint">Lower = steadier, slower</div></div>
+      <button id="btnTrain" onclick="train()" style="margin-bottom:22px">🧠 Train Now</button>
+    </div>
+    <div class="bar"><div id="tbar"></div></div>
+    <div class="metrics" id="tmetrics"></div>
+    <div class="msg" id="tMsg"></div>
+  </div>
+
+  <div class="card" id="testCard" style="display:none">
+    <h2>4 · Test Live &amp; Export</h2>
+    <p class="sub">Point the camera at your objects — predictions update in real time</p>
+    <div class="grid2">
+      <div>
+        <div class="row">
+          <button class="gold" id="btnLive" onclick="toggleLive()">▶ Start Live Test</button>
+          <select id="mode" style="width:280px">
+            <option value="classify">Classify — whole frame</option>
+            <option value="detect">Detect — boxes + your classes</option>
+          </select>
+          <span class="tag" id="fpsTag"></span>
+        </div>
+        <div class="hint" id="modeHint">Detect mode: a general-purpose detector (COCO-SSD, running
+        in your browser) finds objects and draws boxes; your freshly trained classifier names
+        each box with YOUR classes. Works best with everyday objects the detector already
+        recognizes (bottles, phones, boxes, tools, people...).</div>
+        <div class="pred" id="pred"></div>
+      </div>
+      <div>
+        <div class="note" style="margin-top:0">
+          <b>Export</b> downloads your trained model (TensorFlow.js format:
+          <code>model.json</code> + weights) together with <code>classes.txt</code>.
+          To run it in your own website, load it with
+          <code>tf.loadLayersModel('model.json')</code> together with MobileNet features —
+          the same free libraries this page uses.
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button onclick="exportModel()" id="btnExport" disabled>💾 Download Model</button>
+          <span class="msg" id="eMsg" style="margin:0"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>TESR ACADEMY — Learn it. Build it. Deploy it. For real.</footer>
+</div>
+
+<script>
+/* ============ theme ============ */
+function applyTheme(m){
+  document.documentElement.dataset.theme = m;
+  document.getElementById('themeBtn').textContent = m==='light' ? '🌙 Dark' : '☀️ Light';
+  try{localStorage.setItem('tesr_theme',m)}catch(e){}
+}
+function toggleTheme(){
+  applyTheme(document.documentElement.dataset.theme==='light'?'dark':'light');
+}
+let th='dark'; try{th=localStorage.getItem('tesr_theme')||'dark'}catch(e){}
+applyTheme(th);
+
+/* ============ state ============ */
+let classes = [];                 // [{name, count, thumbs:[]}]
+let feats = {};                   // name -> array of Float32Array embeddings
+let net = null, head = null, camOK = false, liveOn = false;
+
+/* ============ capability check ============ */
+async function checkHW(){
+  const hw = document.getElementById('hw');
+  const chips = [];
+  const cores = navigator.hardwareConcurrency || '?';
+  const mem = navigator.deviceMemory ? navigator.deviceMemory + ' GB+' : 'unknown';
+  chips.push(`<span class="chip">CPU <b>${cores} threads</b></span>`);
+  chips.push(`<span class="chip">RAM <b>${mem}</b></span>`);
+
+  let backend = 'none', ok = true, note = '';
+  try {
+    // Prefer WebGPU, fall back to WebGL, then CPU
+    if (navigator.gpu) { try { await tf.setBackend('webgpu'); } catch(e){} }
+    if (tf.getBackend() !== 'webgpu') { try { await tf.setBackend('webgl'); } catch(e){} }
+    await tf.ready();
+    backend = tf.getBackend();
+  } catch(e) { ok = false; }
+
+  if (backend === 'webgpu' || backend === 'webgl') {
+    chips.push(`<span class="chip ok">✔ GPU acceleration: <b>${backend.toUpperCase()}</b></span>`);
+    note = '💡 This machine can train comfortably. Expect a few seconds of training time.';
+  } else if (backend === 'cpu' || backend === 'wasm') {
+    chips.push(`<span class="chip warn">CPU only — training works but is slower</span>`);
+    note = '💡 No GPU acceleration found. Keep it to 2–3 classes and ~30 images each.';
+  } else {
+    ok = false;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    chips.push('<span class="chip warn">No camera API — upload files instead</span>');
+  }
+  hw.innerHTML = chips.join('');
+  const n = document.getElementById('hwNote');
+  if (note){ n.style.display=''; n.textContent = note; }
+
+  if (!ok) {
+    document.getElementById('hwBlock').style.display = '';
+    document.getElementById('hwBlock').textContent =
+      'Sorry — this browser/device does not support in-browser training (no WebGL/WebGPU). ' +
+      'Try a recent Chrome, Edge or Firefox on a desktop or laptop.';
+    for (const id of ['clsCard','camCard','trainCard']) {
+      document.getElementById(id).style.opacity = .4;
+      document.getElementById(id).style.pointerEvents = 'none';
+    }
+    return;
+  }
+  // Load the feature extractor (downloaded once from CDN, then cached by the browser)
+  document.getElementById('tMsg').textContent = 'Loading the vision backbone (MobileNet, ~8 MB)...';
+  try {
+    net = await mobilenet.load({version: 2, alpha: 0.5});
+    document.getElementById('tMsg').textContent = 'Backbone ready ✔ Add classes and start collecting.';
+  } catch(e) {
+    document.getElementById('tMsg').className = 'msg err';
+    document.getElementById('tMsg').textContent =
+      'Could not download the model backbone — check your internet connection and reload. (' + e.message + ')';
+  }
+  startCam();
+}
+
+/* ============ classes ============ */
+function addClass(){
+  const name = document.getElementById('newCls').value.trim()
+    .replace(/[^A-Za-z0-9_\-]/g,'_');
+  if (!name || classes.find(c=>c.name===name)) return;
+  classes.push({name, thumbs: []});
+  feats[name] = [];
+  document.getElementById('newCls').value = '';
+  renderClasses();
+}
+function removeClass(name){
+  classes = classes.filter(c=>c.name!==name);
+  delete feats[name];
+  renderClasses();
+}
+function renderClasses(){
+  document.getElementById('clsList').innerHTML = classes.map(c => `
+    <div class="cls">
+      <div class="head">
+        <b>${c.name}</b>
+        <label class="gold" style="border:1.5px solid var(--gold);color:var(--gold);
+          border-radius:10px;padding:7px 14px;cursor:pointer;font-size:13px">
+          Upload files<input type="file" multiple accept="image/*" hidden
+            onchange="uploadTo('${c.name}', this.files)"></label>
+        <button class="quiet" style="padding:7px 14px;font-size:13px"
+          onclick="removeClass('${c.name}')">Remove</button>
+        <span class="count">${feats[c.name].length} examples</span>
+      </div>
+      <div class="thumbs">${c.thumbs.slice(-24).map(t=>`<img src="${t}">`).join('')}</div>
+    </div>`).join('') ||
+    '<div class="msg">No classes yet — add at least two above.</div>';
+  document.getElementById('capCls').innerHTML =
+    classes.map(c=>`<option>${c.name}</option>`).join('');
+  updateSummary();
+}
+function updateSummary(){
+  const total = classes.reduce((s,c)=>s+feats[c.name].length,0);
+  document.getElementById('dataSummary').textContent = classes.length
+    ? `Total ${total} examples across ${classes.length} classes` : '';
+  setStep(total>0 ? (head ? 4 : 3) : (classes.length ? 2 : 1));
+}
+function setStep(n){
+  [1,2,3,4].forEach(i=>{
+    const el = document.getElementById('st'+i);
+    el.classList.toggle('done', i<n); el.classList.toggle('now', i===n);
+  });
+}
+
+/* ============ camera + capture ============ */
+async function startCam(){
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({video:{width:640,height:480}});
+    document.getElementById('cam').srcObject = s;
+    camOK = true;
+  } catch(e) {
+    document.getElementById('capMsg').textContent =
+      'Camera unavailable (' + e.name + ') — use Upload files instead.';
+  }
+}
+function embed(el){
+  // MobileNet penultimate activations -> 1D feature vector (runs on GPU)
+  return tf.tidy(() => net.infer(el, true).squeeze());
+}
+async function addExample(clsName, el, thumbURL){
+  const f = embed(el);
+  feats[clsName].push(await f.array());
+  f.dispose();
+  const c = classes.find(x=>x.name===clsName);
+  if (thumbURL) c.thumbs.push(thumbURL);
+  renderClasses();
+}
+function snapThumb(video){
+  const c = document.createElement('canvas');
+  c.width = 96; c.height = 72;
+  c.getContext('2d').drawImage(video, 0, 0, 96, 72);
+  return c.toDataURL('image/jpeg', .6);
+}
+/* hold-to-capture burst */
+let capTimer = null;
+const holdBtn = document.getElementById('holdBtn');
+function startBurst(e){
+  e.preventDefault();
+  if (!net || !camOK || !classes.length) return;
+  const cls = document.getElementById('capCls').value;
+  const video = document.getElementById('cam');
+  capTimer = setInterval(async () => {
+    await addExample(cls, video, snapThumb(video));
+    document.getElementById('capMsg').textContent =
+      `${feats[cls].length} examples of "${cls}"`;
+  }, 160);
+}
+function stopBurst(){ if (capTimer){ clearInterval(capTimer); capTimer = null; } }
+holdBtn.addEventListener('mousedown', startBurst);
+holdBtn.addEventListener('touchstart', startBurst);
+for (const ev of ['mouseup','mouseleave','touchend']) {
+  holdBtn.addEventListener(ev, stopBurst);
+  document.addEventListener(ev, stopBurst);
+}
+async function uploadTo(clsName, files){
+  for (const f of files){
+    const img = new Image();
+    await new Promise(res => { img.onload = res; img.src = URL.createObjectURL(f); });
+    await addExample(clsName, img, img.src);
+  }
+}
+
+/* ============ training ============ */
+async function train(){
+  const msg = document.getElementById('tMsg');
+  msg.className = 'msg';
+  if (!net) { msg.textContent = 'Backbone not loaded yet.'; return; }
+  const usable = classes.filter(c => feats[c.name].length >= 5);
+  if (usable.length < 2) {
+    msg.className = 'msg err';
+    msg.textContent = 'Need at least 2 classes with 5+ examples each. Collect more first.';
+    return;
+  }
+  document.getElementById('btnTrain').disabled = true;
+  msg.textContent = 'Preparing data...';
+
+  const names = usable.map(c=>c.name);
+  const xs = [], ys = [];
+  names.forEach((n,i)=>feats[n].forEach(v=>{ xs.push(v); ys.push(i); }));
+  const X = tf.tensor2d(xs);
+  const Y = tf.oneHot(tf.tensor1d(ys,'int32'), names.length);
+
+  head = tf.sequential({layers:[
+    tf.layers.dense({inputShape:[X.shape[1]], units:100, activation:'relu'}),
+    tf.layers.dropout({rate:0.3}),
+    tf.layers.dense({units:names.length, activation:'softmax'}),
+  ]});
+  head.classNames = names;
+  head.compile({optimizer: tf.train.adam(+document.getElementById('lr').value),
+                loss:'categoricalCrossentropy', metrics:['accuracy']});
+
+  const epochs = Math.max(5, +document.getElementById('epochs').value || 40);
+  const t0 = performance.now();
+  try {
+    await head.fit(X, Y, {
+      epochs, batchSize: 16, shuffle: true, validationSplit: 0.15,
+      callbacks: { onEpochEnd: async (ep, logs) => {
+        const pct = 100*(ep+1)/epochs;
+        document.getElementById('tbar').style.width = pct + '%';
+        document.getElementById('tmetrics').innerHTML =
+          `<span>Epoch <b>${ep+1}/${epochs}</b></span>` +
+          `<span>loss <b>${logs.loss.toFixed(3)}</b></span>` +
+          `<span>accuracy <b>${(100*(logs.acc??logs.accuracy??0)).toFixed(1)}%</b></span>` +
+          (logs.val_acc!=null||logs.val_accuracy!=null ?
+            `<span>val_acc <b>${(100*(logs.val_acc??logs.val_accuracy)).toFixed(1)}%</b></span>` : '');
+        await tf.nextFrame();   // keep the page responsive
+      }}
+    });
+    const secs = ((performance.now()-t0)/1000).toFixed(1);
+    msg.textContent = `✅ Trained in ${secs}s on this computer — test it live below.`;
+    document.getElementById('testCard').style.display = '';
+    document.getElementById('btnExport').disabled = false;
+    setStep(4);
+  } catch(e) {
+    msg.className = 'msg err';
+    msg.textContent = 'Training failed: ' + e.message +
+      ' — try fewer examples or reload the page.';
+  } finally {
+    X.dispose(); Y.dispose();
+    document.getElementById('btnTrain').disabled = false;
+  }
+}
+
+/* ============ live test ============ */
+async function toggleLive(){
+  liveOn = !liveOn;
+  document.getElementById('btnLive').textContent = liveOn ? '⏸ Stop' : '▶ Start Live Test';
+  if (liveOn) liveLoop();
+}
+let detector = null, cropCv = document.createElement('canvas');
+cropCv.width = 224; cropCv.height = 224;
+
+async function classifyCrop(video, box){
+  // box = [x, y, w, h] in the video's intrinsic pixels
+  const [x, y, w, h] = box;
+  cropCv.getContext('2d').drawImage(video, x, y, w, h, 0, 0, 224, 224);
+  const p = tf.tidy(() => head.predict(embed(cropCv).expandDims(0)).squeeze());
+  const vals = await p.array(); p.dispose();
+  let best = 0;
+  for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
+  return {name: head.classNames[best], conf: vals[best]};
+}
+
+async function liveLoop(){
+  const video = document.getElementById('cam');
+  const ov = document.getElementById('overlay'), octx = ov.getContext('2d');
+  while (liveOn && head) {
+    const t0 = performance.now();
+    const mode = document.getElementById('mode').value;
+    ov.width = video.videoWidth || 640; ov.height = video.videoHeight || 480;
+
+    if (mode === 'detect') {
+      if (!detector) {
+        document.getElementById('fpsTag').textContent = 'Loading detector (~6 MB, once)...';
+        detector = await cocoSsd.load({base:'lite_mobilenet_v2'});
+      }
+      const dets = (await detector.detect(video)).filter(d => d.score > 0.45);
+      octx.clearRect(0, 0, ov.width, ov.height);
+      const lines = [];
+      for (const d of dets.slice(0, 6)) {          // cap per-frame work
+        const {name, conf} = await classifyCrop(video, d.bbox);
+        const [x, y, w, h] = d.bbox;
+        octx.strokeStyle = '#c9a84c'; octx.lineWidth = 3;
+        octx.strokeRect(x, y, w, h);
+        const label = `${name} ${(100*conf).toFixed(0)}%`;
+        octx.font = '16px Kanit, sans-serif';
+        const tw = octx.measureText(label).width + 12;
+        octx.fillStyle = 'rgba(20,17,12,.8)';
+        octx.fillRect(x, Math.max(0, y-24), tw, 24);
+        octx.fillStyle = '#c9a84c';
+        octx.fillText(label, x+6, Math.max(16, y-6));
+        lines.push(label);
+      }
+      document.getElementById('pred').innerHTML = lines.length
+        ? lines.map(l=>`<div class="prow"><div class="pname" style="width:auto">📦 ${l}</div></div>`).join('')
+        : '<div class="msg">No objects found in frame — try moving closer, '
+          + 'adding light, or switching to Classify mode.</div>';
+    } else {
+      octx.clearRect(0, 0, ov.width, ov.height);
+      const p = tf.tidy(() => head.predict(embed(video).expandDims(0)).squeeze());
+      const vals = await p.array(); p.dispose();
+      document.getElementById('pred').innerHTML = head.classNames.map((n,i)=>`
+        <div class="prow"><div class="pname">${n}</div>
+          <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
+          <div class="pval">${(100*vals[i]).toFixed(1)}%</div></div>`).join('');
+    }
+    document.getElementById('fpsTag').textContent =
+      (1000/(performance.now()-t0)).toFixed(0) + ' FPS on this machine';
+    await tf.nextFrame();
+  }
+}
+
+/* ============ export ============ */
+async function exportModel(){
+  if (!head) return;
+  // Downloads model.json + weights.bin; class order matches classes.txt below
+  await head.save('downloads://tesr-web-model');
+  const blob = new Blob([head.classNames.join('\n')], {type:'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'classes.txt'; a.click();
+  document.getElementById('eMsg').textContent =
+    'Downloaded: tesr-web-model.json, weights.bin and classes.txt';
+}
+
+checkHW(); renderClasses();
+</script>
+</body>
+</html>
