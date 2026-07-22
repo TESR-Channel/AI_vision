@@ -75,8 +75,15 @@ button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgb
 .cls .head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
 .cls .head b{font-weight:500}
 .cls .count{margin-left:auto;color:var(--muted);font-size:13px}
-.thumbs{display:flex;gap:8px;flex-wrap:wrap;max-height:120px;overflow:auto}
-.thumbs img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--edge)}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;max-height:150px;overflow:auto}
+.thumbs .tw{position:relative}
+.thumbs img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--edge);display:block}
+.thumbs .x{position:absolute;right:-5px;top:-5px;width:18px;height:18px;padding:0;
+  border-radius:50%;background:var(--crimson);color:#fff;font-size:10px;line-height:1;
+  display:none;border:0;cursor:pointer}
+.thumbs .tw:hover .x{display:block}
+.thumbs .aug{position:absolute;left:2px;bottom:2px;font-size:10px;background:rgba(0,0,0,.6);
+  color:var(--gold);border-radius:6px;padding:0 4px}
 video,canvas.preview{border-radius:12px;background:#111;max-width:100%}
 .bar{height:14px;background:var(--soft);border-radius:999px;overflow:hidden;margin:14px 0 10px}
 .bar div{height:100%;background:linear-gradient(90deg,var(--gold),var(--crimson));
@@ -166,6 +173,26 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     </div>
   </div>
 
+  <div class="card" id="augCard">
+    <h2>2.5 · Auto Data Augmentation (optional)</h2>
+    <p class="sub">Only a few photos? Generate more right here in the browser —
+    random flips, rotations and lighting changes of your examples. Generated ones
+    are marked ✨ and can be removed anytime.</p>
+    <div class="row">
+      <div><label class="tag">Copies per photo</label><br>
+        <select id="augMult" style="width:120px">
+          <option value="2">×2</option>
+          <option value="3" selected>×3</option>
+          <option value="5">×5</option>
+        </select></div>
+      <button class="gold" id="btnAug" onclick="augmentAll()" style="margin-top:20px">✨ Generate</button>
+      <button class="quiet" onclick="clearAug()" style="margin-top:20px">Remove generated</button>
+      <span class="msg" id="augMsg" style="margin:0"></span>
+    </div>
+    <div class="hint" style="max-width:none;margin-top:10px">Augmentation helps the model tolerate
+    different angles and lighting, but real photos from varied viewpoints still work best.</div>
+  </div>
+
   <div class="card" id="trainCard">
     <h2>3 · Train</h2>
     <p class="sub">Runs on this computer using WebGL/WebGPU acceleration when available</p>
@@ -239,8 +266,7 @@ let th='dark'; try{th=localStorage.getItem('tesr_theme')||'dark'}catch(e){}
 applyTheme(th);
 
 /* ============ state ============ */
-let classes = [];                 // [{name, count, thumbs:[]}]
-let feats = {};                   // name -> array of Float32Array embeddings
+let classes = [];   // [{name, examples: [{feat, thumb, src, aug}]}]
 let net = null, head = null, camOK = false, liveOn = false;
 
 /* ============ capability check ============ */
@@ -306,18 +332,22 @@ function addClass(){
   const name = document.getElementById('newCls').value.trim()
     .replace(/[^A-Za-z0-9_\-]/g,'_');
   if (!name || classes.find(c=>c.name===name)) return;
-  classes.push({name, thumbs: []});
-  feats[name] = [];
+  classes.push({name, examples: []});
   document.getElementById('newCls').value = '';
   renderClasses();
 }
 function removeClass(name){
   classes = classes.filter(c=>c.name!==name);
-  delete feats[name];
   renderClasses();
 }
+function deleteExample(clsName, idx){
+  const c = classes.find(x=>x.name===clsName);
+  if (c) { c.examples.splice(idx, 1); renderClasses(); }
+}
 function renderClasses(){
-  document.getElementById('clsList').innerHTML = classes.map(c => `
+  document.getElementById('clsList').innerHTML = classes.map(c => {
+    const nAug = c.examples.filter(e=>e.aug).length;
+    return `
     <div class="cls">
       <div class="head">
         <b>${c.name}</b>
@@ -326,18 +356,23 @@ function renderClasses(){
           Upload files<input type="file" multiple accept="image/*" hidden
             onchange="uploadTo('${c.name}', this.files)"></label>
         <button class="quiet" style="padding:7px 14px;font-size:13px"
-          onclick="removeClass('${c.name}')">Remove</button>
-        <span class="count">${feats[c.name].length} examples</span>
+          onclick="removeClass('${c.name}')">Remove class</button>
+        <span class="count">${c.examples.length} examples${nAug?` (${nAug} auto)`:''}
+          · hover a photo to delete it</span>
       </div>
-      <div class="thumbs">${c.thumbs.slice(-24).map(t=>`<img src="${t}">`).join('')}</div>
-    </div>`).join('') ||
+      <div class="thumbs">${c.examples.map((e,i)=>`
+        <span class="tw"><img src="${e.thumb}">
+          ${e.aug?'<span class="aug">✨</span>':''}
+          <button class="x" title="Delete this example"
+            onclick="deleteExample('${c.name}', ${i})">✕</button></span>`).join('')}</div>
+    </div>`;}).join('') ||
     '<div class="msg">No classes yet — add at least two above.</div>';
   document.getElementById('capCls').innerHTML =
     classes.map(c=>`<option>${c.name}</option>`).join('');
   updateSummary();
 }
 function updateSummary(){
-  const total = classes.reduce((s,c)=>s+feats[c.name].length,0);
+  const total = classes.reduce((s,c)=>s+c.examples.length,0);
   document.getElementById('dataSummary').textContent = classes.length
     ? `Total ${total} examples across ${classes.length} classes` : '';
   setStep(total>0 ? (head ? 4 : 3) : (classes.length ? 2 : 1));
@@ -364,12 +399,19 @@ function embed(el){
   // MobileNet penultimate activations -> 1D feature vector (runs on GPU)
   return tf.tidy(() => net.infer(el, true).squeeze());
 }
+function makeSrc(el){
+  const c = document.createElement('canvas');
+  c.width = 224; c.height = 224;
+  c.getContext('2d').drawImage(el, 0, 0, 224, 224);
+  return c;
+}
 async function addExample(clsName, el, thumbURL){
-  const f = embed(el);
-  feats[clsName].push(await f.array());
+  const srcCv = makeSrc(el);          // keep a small source copy → enables augmentation later
+  const f = embed(srcCv);
+  const feat = await f.array();
   f.dispose();
   const c = classes.find(x=>x.name===clsName);
-  if (thumbURL) c.thumbs.push(thumbURL);
+  c.examples.push({feat, thumb: thumbURL, src: srcCv.toDataURL('image/jpeg', .8), aug: false});
   renderClasses();
 }
 function snapThumb(video){
@@ -389,7 +431,7 @@ function startBurst(e){
   capTimer = setInterval(async () => {
     await addExample(cls, video, snapThumb(video));
     document.getElementById('capMsg').textContent =
-      `${feats[cls].length} examples of "${cls}"`;
+      `${classes.find(x=>x.name===cls).examples.length} examples of "${cls}"`;
   }, 160);
 }
 function stopBurst(){ if (capTimer){ clearInterval(capTimer); capTimer = null; } }
@@ -407,12 +449,74 @@ async function uploadTo(clsName, files){
   }
 }
 
+/* ============ augmentation ============ */
+function augmentVariant(img){
+  const c = document.createElement('canvas');
+  c.width = 224; c.height = 224;
+  const x = c.getContext('2d');
+  const flip = Math.random() < 0.5;
+  const rot = (Math.random()*30 - 15) * Math.PI/180;
+  const scale = 0.88 + Math.random()*0.24;
+  x.fillStyle = '#727272'; x.fillRect(0,0,224,224);
+  x.filter = `brightness(${(0.75+Math.random()*0.5).toFixed(2)})` +
+             ` contrast(${(0.85+Math.random()*0.3).toFixed(2)})` +
+             ` saturate(${(0.85+Math.random()*0.3).toFixed(2)})`;
+  x.translate(112,112); x.rotate(rot); x.scale(flip ? -scale : scale, scale);
+  x.drawImage(img, -112, -112, 224, 224);
+  return c;
+}
+function shrink(cv){
+  const c = document.createElement('canvas');
+  c.width = 96; c.height = 72;
+  c.getContext('2d').drawImage(cv, 0, 0, 96, 72);
+  return c.toDataURL('image/jpeg', .6);
+}
+async function augmentAll(){
+  const btn = document.getElementById('btnAug'), msg = document.getElementById('augMsg');
+  if (!net) { msg.textContent = 'Backbone still loading — wait a moment.'; return; }
+  const k = +document.getElementById('augMult').value;
+  const sources = classes.flatMap(c => c.examples.filter(e => !e.aug)
+    .map(e => ({cls: c, src: e.src})));
+  if (!sources.length) { msg.textContent = 'Collect some examples first.'; return; }
+  btn.disabled = true;
+  let made = 0, total = sources.length * k;
+  for (const s of sources) {
+    const img = new Image();
+    await new Promise(res => { img.onload = res; img.src = s.src; });
+    for (let i = 0; i < k; i++) {
+      const cv = augmentVariant(img);
+      const f = embed(cv);
+      s.cls.examples.push({feat: await f.array(), thumb: shrink(cv),
+                           src: cv.toDataURL('image/jpeg', .8), aug: true});
+      f.dispose();
+      made++;
+      if (made % 10 === 0) {
+        msg.textContent = `Generating... ${made}/${total}`;
+        await tf.nextFrame();     // keep the page responsive
+      }
+    }
+  }
+  renderClasses();
+  msg.textContent = `Done — created ${made} images from ${sources.length} originals ✨ (marked in the lists above)`;
+  btn.disabled = false;
+}
+function clearAug(){
+  let n = 0;
+  classes.forEach(c => {
+    n += c.examples.filter(e=>e.aug).length;
+    c.examples = c.examples.filter(e=>!e.aug);
+  });
+  renderClasses();
+  document.getElementById('augMsg').textContent =
+    `Removed ${n} generated images — your originals are untouched.`;
+}
+
 /* ============ training ============ */
 async function train(){
   const msg = document.getElementById('tMsg');
   msg.className = 'msg';
   if (!net) { msg.textContent = 'Backbone not loaded yet.'; return; }
-  const usable = classes.filter(c => feats[c.name].length >= 5);
+  const usable = classes.filter(c => c.examples.length >= 5);
   if (usable.length < 2) {
     msg.className = 'msg err';
     msg.textContent = 'Need at least 2 classes with 5+ examples each. Collect more first.';
@@ -423,7 +527,7 @@ async function train(){
 
   const names = usable.map(c=>c.name);
   const xs = [], ys = [];
-  names.forEach((n,i)=>feats[n].forEach(v=>{ xs.push(v); ys.push(i); }));
+  usable.forEach((c,i)=>c.examples.forEach(e=>{ xs.push(e.feat); ys.push(i); }));
   const X = tf.tensor2d(xs);
   const Y = tf.oneHot(tf.tensor1d(ys,'int32'), names.length);
 
