@@ -84,14 +84,16 @@ Quick start on your computer (Python 3.9–3.11):
 
 ```bash
 unzip tesr-web-model.zip -d my-model && cd my-model
-pip install -r requirements.txt        # tensorflow, tensorflow_hub, tensorflowjs, opencv-python...
+pip install -r requirements.txt        # just 4 packages: tensorflow, tensorflow_hub, numpy, opencv-python
 python predict.py --source photo.jpg   # single image
 python predict.py --source 0           # live webcam — press q to quit
 ```
 
 How it works: the browser trained a small classifier head on top of **MobileNet**
 features. `predict.py` rebuilds that same two-stage pipeline in Python — the
-MobileNet backbone downloads automatically on first run (~10 MB, cached).
+MobileNet backbone downloads automatically on first run (~10 MB, cached), and
+your head weights are read directly from `weights.bin` with NumPy (no converter
+library needed, so installation stays light and conflict-free).
 If predictions ever look wrong, run with `--norm pm1` (switches between the two
 common MobileNet pixel-scaling conventions).
 
