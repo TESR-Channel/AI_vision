@@ -16,10 +16,11 @@ on **your own computer inside the browser**; your photos never leave your machin
 | | |
 |---|---|
 | 🧩 **Define classes** | Tell the AI what to tell apart — e.g. `remote` vs `powerbank` |
-| 📷 **Collect examples** | Hold the capture button and move the object around, or upload image files |
+| 📷 **Collect examples** | Hold the capture button and move the object around, or upload image files — hover any photo to delete it |
+| ✨ **Auto augmentation** | One click generates ×2–×5 more images (flips, rotations, lighting) right in the browser |
 | 🧠 **Train in seconds** | Transfer learning runs on your GPU via WebGL/WebGPU — typically under 10 seconds |
 | 🎯 **Test live** | Two modes: **Classify** the whole frame, or **Detect** — boxes drawn around objects, each labeled with *your* classes |
-| 💾 **Export** | Download your trained model (TensorFlow.js format) to use in your own web projects |
+| 💾 **Export** | One .zip with your model **plus a ready-to-run Python sample** — use it on your PC from an image or webcam |
 
 ## 🔒 Privacy by design
 
@@ -66,6 +67,33 @@ flowchart LR
     M --> H[Your trained head<br>softmax classifier]
     H --> P[🎯 Class + confidence]
 ```
+
+## 🐍 Use your model in Python
+
+The **Export** button gives you one `tesr-web-model.zip` containing everything:
+
+```
+model.json + weights.bin   your trained model (TensorFlow.js format)
+classes.txt                class names, one per line
+predict.py                 ready-to-run sample: image file or live webcam
+requirements.txt           the Python libraries it needs
+README_PYTHON.md           step-by-step instructions
+```
+
+Quick start on your computer (Python 3.9–3.11):
+
+```bash
+unzip tesr-web-model.zip -d my-model && cd my-model
+pip install -r requirements.txt        # tensorflow, tensorflow_hub, tensorflowjs, opencv-python...
+python predict.py --source photo.jpg   # single image
+python predict.py --source 0           # live webcam — press q to quit
+```
+
+How it works: the browser trained a small classifier head on top of **MobileNet**
+features. `predict.py` rebuilds that same two-stage pipeline in Python — the
+MobileNet backbone downloads automatically on first run (~10 MB, cached).
+If predictions ever look wrong, run with `--norm pm1` (switches between the two
+common MobileNet pixel-scaling conventions).
 
 ## 📚 Learn more with TESR Academy
 

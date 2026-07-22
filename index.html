@@ -8,6 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{
   --paper:#100f0d; --card:#1a1815; --soft:#242019; --edge:#37322a;
@@ -152,10 +153,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     30–50 varied shots per class works well. You can also upload image files per class above.</p>
     <div class="grid2">
       <div>
-        <div style="position:relative;width:480px;max-width:100%">
-          <video id="cam" autoplay playsinline muted style="width:100%;border-radius:12px;background:#111"></video>
-          <canvas id="overlay" style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none"></canvas>
-        </div>
+        <video id="cam" autoplay playsinline muted style="width:480px;max-width:100%;border-radius:12px;background:#111"></video>
         <div class="row" style="margin-top:12px">
           <select id="capCls" style="width:200px"></select>
           <button id="holdBtn">📸 Hold to Capture</button>
@@ -219,6 +217,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <p class="sub">Point the camera at your objects — predictions update in real time</p>
     <div class="grid2">
       <div>
+        <canvas id="testView" width="640" height="480"
+          style="width:100%;border-radius:12px;background:#111;display:block;margin-bottom:12px"></canvas>
         <div class="row">
           <button class="gold" id="btnLive" onclick="toggleLive()">▶ Start Live Test</button>
           <select id="mode" style="width:280px">
@@ -235,11 +235,12 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
       </div>
       <div>
         <div class="note" style="margin-top:0">
-          <b>Export</b> downloads your trained model (TensorFlow.js format:
-          <code>model.json</code> + weights) together with <code>classes.txt</code>.
-          To run it in your own website, load it with
-          <code>tf.loadLayersModel('model.json')</code> together with MobileNet features —
-          the same free libraries this page uses.
+          <b>Export</b> downloads a single <code>.zip</code> containing your trained
+          model (<code>model.json</code> + <code>weights.bin</code>),
+          <code>classes.txt</code>, a ready-to-run <b>Python sample</b>
+          (<code>predict.py</code> + <code>requirements.txt</code>) and a step-by-step
+          <code>README_PYTHON.md</code> — so you can use the model on your computer,
+          from an image file or a live webcam.
         </div>
         <div class="row" style="margin-top:14px">
           <button onclick="exportModel()" id="btnExport" disabled>💾 Download Model</button>
@@ -594,11 +595,12 @@ async function classifyCrop(video, box){
 
 async function liveLoop(){
   const video = document.getElementById('cam');
-  const ov = document.getElementById('overlay'), octx = ov.getContext('2d');
+  const tv = document.getElementById('testView'), tx = tv.getContext('2d');
   while (liveOn && head) {
     const t0 = performance.now();
     const mode = document.getElementById('mode').value;
-    ov.width = video.videoWidth || 640; ov.height = video.videoHeight || 480;
+    tv.width = video.videoWidth || 640; tv.height = video.videoHeight || 480;
+    tx.drawImage(video, 0, 0, tv.width, tv.height);   // live camera view in the Test card
 
     if (mode === 'detect') {
       if (!detector) {
@@ -606,20 +608,19 @@ async function liveLoop(){
         detector = await cocoSsd.load({base:'lite_mobilenet_v2'});
       }
       const dets = (await detector.detect(video)).filter(d => d.score > 0.45);
-      octx.clearRect(0, 0, ov.width, ov.height);
       const lines = [];
       for (const d of dets.slice(0, 6)) {          // cap per-frame work
         const {name, conf} = await classifyCrop(video, d.bbox);
         const [x, y, w, h] = d.bbox;
-        octx.strokeStyle = '#c9a84c'; octx.lineWidth = 3;
-        octx.strokeRect(x, y, w, h);
+        tx.strokeStyle = '#c9a84c'; tx.lineWidth = 3;
+        tx.strokeRect(x, y, w, h);
         const label = `${name} ${(100*conf).toFixed(0)}%`;
-        octx.font = '16px Kanit, sans-serif';
-        const tw = octx.measureText(label).width + 12;
-        octx.fillStyle = 'rgba(20,17,12,.8)';
-        octx.fillRect(x, Math.max(0, y-24), tw, 24);
-        octx.fillStyle = '#c9a84c';
-        octx.fillText(label, x+6, Math.max(16, y-6));
+        tx.font = '18px Kanit, sans-serif';
+        const tw = tx.measureText(label).width + 14;
+        tx.fillStyle = 'rgba(20,17,12,.82)';
+        tx.fillRect(x, Math.max(0, y-26), tw, 26);
+        tx.fillStyle = '#c9a84c';
+        tx.fillText(label, x+7, Math.max(19, y-7));
         lines.push(label);
       }
       document.getElementById('pred').innerHTML = lines.length
@@ -627,9 +628,17 @@ async function liveLoop(){
         : '<div class="msg">No objects found in frame — try moving closer, '
           + 'adding light, or switching to Classify mode.</div>';
     } else {
-      octx.clearRect(0, 0, ov.width, ov.height);
       const p = tf.tidy(() => head.predict(embed(video).expandDims(0)).squeeze());
       const vals = await p.array(); p.dispose();
+      let best = 0;
+      for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
+      const label = `${head.classNames[best]} ${(100*vals[best]).toFixed(0)}%`;
+      tx.font = '20px Kanit, sans-serif';
+      const tw = tx.measureText(label).width + 16;
+      tx.fillStyle = 'rgba(20,17,12,.82)';
+      tx.fillRect(10, 10, tw, 32);
+      tx.fillStyle = '#c9a84c';
+      tx.fillText(label, 18, 33);
       document.getElementById('pred').innerHTML = head.classNames.map((n,i)=>`
         <div class="prow"><div class="pname">${n}</div>
           <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
@@ -642,15 +651,44 @@ async function liveLoop(){
 }
 
 /* ============ export ============ */
+const PY_REQS = 'tensorflow>=2.13\ntensorflow_hub>=0.15\ntensorflowjs>=4.10\nnumpy\npillow\nopencv-python\n';
+const PY_README = '# Use your TESR web-trained model in Python\n\nYour model has two parts, exactly like in the browser:\n1. MobileNet backbone (downloaded automatically on first run) turns an image into a feature vector\n2. Your trained head (model.json + weights.bin) turns that vector into YOUR classes\n\n## 1) Install (Python 3.9-3.11 recommended)\n\n    pip install -r requirements.txt\n\nNote: tensorflow is a large download (~500 MB). First run also downloads the\nMobileNet backbone (~10 MB) and caches it.\n\n## 2) Run\n\n    python predict.py --source my_photo.jpg     # single image\n    python predict.py --source 0                # live webcam (press q to quit)\n\nExpected output: the predicted class with a confidence percentage\n(and an overlay window in webcam mode).\n\n## Troubleshooting\n\n- Predictions look random/wrong: run with `--norm pm1` (switches the pixel\n  scaling convention between [0,1] and [-1,1] - the two common MobileNet styles)\n- `No module named tensorflowjs`: re-run the pip install line\n- Webcam will not open: try `--source 1` or use an image file\n- Slow on first prediction: normal - TensorFlow warms up, later frames are fast\n';
+const PY_CODE = '"""Run a TESR AI Vision Web Trainer model in Python.\n\nThe browser trained a small head on top of MobileNet features. This script\nrebuilds the same two-stage pipeline in Python:\n  image -> MobileNetV2 (0.5, 224) feature vector -> your trained head -> class\n\nInstall:  pip install -r requirements.txt\nRun:      python predict.py --source photo.jpg\n          python predict.py --source 0            # webcam, press q to quit\nIf predictions look wrong, try:  --norm pm1\n"""\nimport argparse\nfrom pathlib import Path\n\nimport numpy as np\n\nBACKBONE_URL = "https://tfhub.dev/google/imagenet/mobilenet_v2_050_224/feature_vector/5"\n\n\ndef load_models(model_json):\n    import tensorflow_hub as hub\n    import tensorflowjs as tfjs\n\n    print("Loading backbone (first run downloads ~10 MB)...")\n    backbone = hub.KerasLayer(BACKBONE_URL, trainable=False)\n    print("Loading your trained head...")\n    head = tfjs.converters.load_keras_model(model_json)\n    return backbone, head\n\n\ndef preprocess(rgb, norm):\n    import cv2\n\n    img = cv2.resize(rgb, (224, 224)).astype("float32")\n    if norm == "pm1":\n        img = img / 127.5 - 1.0\n    else:\n        img = img / 255.0\n    return img[None, ...]\n\n\ndef predict(backbone, head, rgb, norm, names):\n    x = preprocess(rgb, norm)\n    feat = backbone(x)\n    probs = head(feat).numpy()[0]\n    i = int(np.argmax(probs))\n    return names[i], float(probs[i])\n\n\ndef main():\n    ap = argparse.ArgumentParser()\n    ap.add_argument("--model", default="model.json")\n    ap.add_argument("--classes", default="classes.txt")\n    ap.add_argument("--source", default="0", help="image path, or 0 for webcam")\n    ap.add_argument("--norm", choices=["zero_one", "pm1"], default="zero_one")\n    args = ap.parse_args()\n\n    import cv2\n\n    names = Path(args.classes).read_text(encoding="utf-8").split()\n    backbone, head = load_models(args.model)\n\n    if not args.source.isdigit():\n        bgr = cv2.imread(args.source)\n        if bgr is None:\n            raise SystemExit("Could not read image: " + args.source)\n        name, conf = predict(backbone, head,\n                             cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB), args.norm, names)\n        print("Prediction: {}  ({:.1f}%)".format(name, conf * 100))\n        return\n\n    cap = cv2.VideoCapture(int(args.source))\n    if not cap.isOpened():\n        raise SystemExit("Could not open camera " + args.source)\n    try:\n        while True:\n            ok, bgr = cap.read()\n            if not ok:\n                break\n            name, conf = predict(backbone, head,\n                                 cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB),\n                                 args.norm, names)\n            cv2.putText(bgr, "{} {:.0f}%".format(name, conf * 100), (10, 34),\n                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (60, 200, 255), 2)\n            cv2.imshow("TESR Web Model - Python", bgr)\n            if cv2.waitKey(1) & 0xFF == ord("q"):\n                break\n    finally:\n        cap.release()          # always release the camera on exit\n        cv2.destroyAllWindows()\n\n\nif __name__ == "__main__":\n    main()\n';
+
 async function exportModel(){
   if (!head) return;
-  // Downloads model.json + weights.bin; class order matches classes.txt below
-  await head.save('downloads://tesr-web-model');
-  const blob = new Blob([head.classNames.join('\n')], {type:'text/plain'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = 'classes.txt'; a.click();
-  document.getElementById('eMsg').textContent =
-    'Downloaded: tesr-web-model.json, weights.bin and classes.txt';
+  const m = document.getElementById('eMsg');
+  m.textContent = 'Building your export zip...';
+  try {
+    // Capture the model artifacts in memory (instead of separate downloads)
+    let artifacts = null;
+    await head.save(tf.io.withSaveHandler(async a => {
+      artifacts = a;
+      return {modelArtifactsInfo: {dateSaved: new Date(), modelTopologyType: 'JSON'}};
+    }));
+    const modelJson = JSON.stringify({
+      modelTopology: artifacts.modelTopology,
+      format: 'layers-model',
+      generatedBy: 'TESR AI Vision Web Trainer',
+      convertedBy: null,
+      weightsManifest: [{paths: ['weights.bin'], weights: artifacts.weightSpecs}],
+    });
+    const zip = new JSZip();
+    zip.file('model.json', modelJson);
+    zip.file('weights.bin', artifacts.weightData);
+    zip.file('classes.txt', head.classNames.join('\n'));
+    zip.file('predict.py', PY_CODE);
+    zip.file('requirements.txt', PY_REQS);
+    zip.file('README_PYTHON.md', PY_README);
+    const blob = await zip.generateAsync({type: 'blob'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tesr-web-model.zip';
+    a.click();
+    m.textContent = 'Downloaded tesr-web-model.zip — unzip it and follow README_PYTHON.md';
+  } catch (e) {
+    m.textContent = 'Export failed: ' + e.message;
+  }
 }
 
 checkHW(); renderClasses();
