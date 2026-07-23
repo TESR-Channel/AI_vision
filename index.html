@@ -76,6 +76,9 @@ button:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 12px rgb
 .cls .head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
 .cls .head b{font-weight:500}
 .cls .count{margin-left:auto;color:var(--muted);font-size:13px}
+.clschip{background:var(--card);border:1.5px solid var(--edge);color:var(--muted);
+  border-radius:999px;padding:8px 18px;font-size:14px}
+.clschip.active{border-color:var(--gold);color:var(--gold);background:var(--gold-soft);font-weight:500}
 .thumbs{display:flex;gap:8px;flex-wrap:wrap;max-height:150px;overflow:auto}
 .thumbs .tw{position:relative}
 .thumbs img{width:52px;height:52px;object-fit:cover;border-radius:8px;border:1px solid var(--edge);display:block}
@@ -154,8 +157,8 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
     <div class="grid2">
       <div>
         <video id="cam" autoplay playsinline muted style="width:480px;max-width:100%;border-radius:12px;background:#111"></video>
-        <div class="row" style="margin-top:12px">
-          <select id="capCls" style="width:200px"></select>
+        <div class="row" style="margin-top:12px" id="capClsChips"></div>
+        <div class="row" style="margin-top:10px">
           <button id="holdBtn">📸 Hold to Capture</button>
           <span class="tag" id="capMsg"></span>
         </div>
@@ -345,6 +348,14 @@ function deleteExample(clsName, idx){
   const c = classes.find(x=>x.name===clsName);
   if (c) { c.examples.splice(idx, 1); renderClasses(); }
 }
+let capClass = null;   // latched capture class — stays until YOU change it
+function renderCapChips(){
+  if (!classes.find(c => c.name === capClass)) capClass = classes[0]?.name || null;
+  document.getElementById('capClsChips').innerHTML = classes.map(c =>
+    `<button class="clschip ${c.name===capClass?'active':''}"
+       onclick="capClass='${c.name}';renderCapChips()">${c.name}</button>`).join('') ||
+    '<span class="tag">Add classes above first</span>';
+}
 function renderClasses(){
   document.getElementById('clsList').innerHTML = classes.map(c => {
     const nAug = c.examples.filter(e=>e.aug).length;
@@ -368,8 +379,7 @@ function renderClasses(){
             onclick="deleteExample('${c.name}', ${i})">✕</button></span>`).join('')}</div>
     </div>`;}).join('') ||
     '<div class="msg">No classes yet — add at least two above.</div>';
-  document.getElementById('capCls').innerHTML =
-    classes.map(c=>`<option>${c.name}</option>`).join('');
+  renderCapChips();
   updateSummary();
 }
 function updateSummary(){
@@ -426,8 +436,8 @@ let capTimer = null;
 const holdBtn = document.getElementById('holdBtn');
 function startBurst(e){
   e.preventDefault();
-  if (!net || !camOK || !classes.length) return;
-  const cls = document.getElementById('capCls').value;
+  if (!net || !camOK || !capClass) return;
+  const cls = capClass;
   const video = document.getElementById('cam');
   capTimer = setInterval(async () => {
     await addExample(cls, video, snapThumb(video));
