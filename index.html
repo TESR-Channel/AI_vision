@@ -221,7 +221,7 @@ code{background:var(--soft);padding:2px 8px;border-radius:6px;font-size:13px}
           style="width:100%;border-radius:12px;background:#111;display:block;margin-bottom:12px"></canvas>
         <div class="row">
           <button class="gold" id="btnLive" onclick="toggleLive()">▶ Start Live Test</button>
-          <select id="mode" style="width:280px">
+          <select id="mode" style="width:280px" onchange="lastDetsW=[];lastLabel=null;">
             <option value="classify">Classify — whole frame</option>
             <option value="detect">Detect — boxes + your classes</option>
           </select>
@@ -577,10 +577,11 @@ async function train(){
 async function toggleLive(){
   liveOn = !liveOn;
   document.getElementById('btnLive').textContent = liveOn ? '⏸ Stop' : '▶ Start Live Test';
-  if (liveOn) liveLoop();
+  if (liveOn) { lastDetsW = []; lastLabel = null; renderLoopW(); inferLoopW(); }
 }
 let detector = null, cropCv = document.createElement('canvas');
 cropCv.width = 224; cropCv.height = 224;
+let lastDetsW = [], lastLabel = null;
 
 async function classifyCrop(video, box){
   // box = [x, y, w, h] in the video's intrinsic pixels
@@ -593,14 +594,71 @@ async function classifyCrop(video, box){
   return {name: head.classNames[best], conf: vals[best]};
 }
 
-async function liveLoop(){
+/* Smoothing: blend each new box toward the nearest previous box of the same
+   class, so boxes glide instead of jumping (same technique as real trackers). */
+function smoothDetsW(prev, next){
+  const A = 0.45;
+  return next.map(n => {
+    const [nx1, ny1, nx2, ny2] = n.box;
+    const ncx = (nx1+nx2)/2, ncy = (ny1+ny2)/2;
+    let best = null, bd = 0.12;
+    for (const p of prev) {
+      if (p.name !== n.name) continue;
+      const [px1, py1, px2, py2] = p.box;
+      const d = Math.hypot((px1+px2)/2 - ncx, (py1+py2)/2 - ncy);
+      if (d < bd) { bd = d; best = p; }
+    }
+    if (!best) return n;
+    return {name: n.name, conf: n.conf,
+            box: n.box.map((v, i) => best.box[i] + A * (v - best.box[i]))};
+  });
+}
+
+/* Render loop: every animation frame, draw the CURRENT camera image together
+   with the MOST RECENT results — nothing ever blinks between updates. */
+function renderLoopW(){
+  if (!liveOn) return;
   const video = document.getElementById('cam');
   const tv = document.getElementById('testView'), tx = tv.getContext('2d');
+  if (video.videoWidth && video.readyState >= 2) {
+    tv.width = video.videoWidth; tv.height = video.videoHeight;
+    tx.drawImage(video, 0, 0);
+    const mode = document.getElementById('mode').value;
+    if (mode === 'detect') {
+      for (const d of lastDetsW) {
+        const [x1, y1, x2, y2] = d.box;
+        const x = x1*tv.width, y = y1*tv.height,
+              w = (x2-x1)*tv.width, h = (y2-y1)*tv.height;
+        tx.strokeStyle = '#c9a84c'; tx.lineWidth = 3;
+        tx.strokeRect(x, y, w, h);
+        const label = `${d.name} ${(100*d.conf).toFixed(0)}%`;
+        tx.font = '18px Kanit, sans-serif';
+        const tw = tx.measureText(label).width + 14;
+        tx.fillStyle = 'rgba(20,17,12,.82)';
+        tx.fillRect(x, Math.max(0, y-26), tw, 26);
+        tx.fillStyle = '#c9a84c';
+        tx.fillText(label, x+7, Math.max(19, y-7));
+      }
+    } else if (lastLabel) {
+      tx.font = '20px Kanit, sans-serif';
+      const tw = tx.measureText(lastLabel).width + 16;
+      tx.fillStyle = 'rgba(20,17,12,.82)';
+      tx.fillRect(10, 10, tw, 32);
+      tx.fillStyle = '#c9a84c';
+      tx.fillText(lastLabel, 18, 33);
+    }
+  }
+  requestAnimationFrame(renderLoopW);
+}
+
+/* Inference loop: updates results in the background; the render loop above
+   keeps the picture and boxes on screen the whole time. */
+async function inferLoopW(){
+  const video = document.getElementById('cam');
   while (liveOn && head) {
+    if (!video.videoWidth || video.readyState < 2) { await tf.nextFrame(); continue; }
     const t0 = performance.now();
     const mode = document.getElementById('mode').value;
-    tv.width = video.videoWidth || 640; tv.height = video.videoHeight || 480;
-    tx.drawImage(video, 0, 0, tv.width, tv.height);   // live camera view in the Test card
 
     if (mode === 'detect') {
       if (!detector) {
@@ -608,23 +666,16 @@ async function liveLoop(){
         detector = await cocoSsd.load({base:'lite_mobilenet_v2'});
       }
       const dets = (await detector.detect(video)).filter(d => d.score > 0.45);
-      const lines = [];
+      const out = [];
+      const W = video.videoWidth, H = video.videoHeight;
       for (const d of dets.slice(0, 6)) {          // cap per-frame work
         const {name, conf} = await classifyCrop(video, d.bbox);
         const [x, y, w, h] = d.bbox;
-        tx.strokeStyle = '#c9a84c'; tx.lineWidth = 3;
-        tx.strokeRect(x, y, w, h);
-        const label = `${name} ${(100*conf).toFixed(0)}%`;
-        tx.font = '18px Kanit, sans-serif';
-        const tw = tx.measureText(label).width + 14;
-        tx.fillStyle = 'rgba(20,17,12,.82)';
-        tx.fillRect(x, Math.max(0, y-26), tw, 26);
-        tx.fillStyle = '#c9a84c';
-        tx.fillText(label, x+7, Math.max(19, y-7));
-        lines.push(label);
+        out.push({name, conf, box: [x/W, y/H, (x+w)/W, (y+h)/H]});
       }
-      document.getElementById('pred').innerHTML = lines.length
-        ? lines.map(l=>`<div class="prow"><div class="pname" style="width:auto">📦 ${l}</div></div>`).join('')
+      lastDetsW = smoothDetsW(lastDetsW, out);
+      document.getElementById('pred').innerHTML = lastDetsW.length
+        ? lastDetsW.map(d => `<div class="prow"><div class="pname" style="width:auto">📦 ${d.name} ${(100*d.conf).toFixed(0)}%</div></div>`).join('')
         : '<div class="msg">No objects found in frame — try moving closer, '
           + 'adding light, or switching to Classify mode.</div>';
     } else {
@@ -632,20 +683,14 @@ async function liveLoop(){
       const vals = await p.array(); p.dispose();
       let best = 0;
       for (let i = 1; i < vals.length; i++) if (vals[i] > vals[best]) best = i;
-      const label = `${head.classNames[best]} ${(100*vals[best]).toFixed(0)}%`;
-      tx.font = '20px Kanit, sans-serif';
-      const tw = tx.measureText(label).width + 16;
-      tx.fillStyle = 'rgba(20,17,12,.82)';
-      tx.fillRect(10, 10, tw, 32);
-      tx.fillStyle = '#c9a84c';
-      tx.fillText(label, 18, 33);
+      lastLabel = `${head.classNames[best]} ${(100*vals[best]).toFixed(0)}%`;
       document.getElementById('pred').innerHTML = head.classNames.map((n,i)=>`
         <div class="prow"><div class="pname">${n}</div>
           <div class="pbar"><div style="width:${(100*vals[i]).toFixed(1)}%"></div></div>
           <div class="pval">${(100*vals[i]).toFixed(1)}%</div></div>`).join('');
     }
     document.getElementById('fpsTag').textContent =
-      (1000/(performance.now()-t0)).toFixed(0) + ' FPS on this machine';
+      (1000/(performance.now()-t0)).toFixed(0) + ' detections/sec';
     await tf.nextFrame();
   }
 }
